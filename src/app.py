@@ -45,6 +45,12 @@ def render_history():
 def process_query(query: str, vectorstore, reranker, model, tokenizer):
     intent, book_ctx = detect_query_intent(query, st.session_state.history)
     
+    if intent == QueryIntent.LIST_BOOKS:
+        from core.generator import get_book_list_response
+        response = get_book_list_response()
+        st.markdown(response)
+        return response, [], ""
+    
     label = {
         QueryIntent.CROSS_BOOK: "Searching all books...",
         QueryIntent.COMPARISON: "Comparing...",
@@ -56,7 +62,8 @@ def process_query(query: str, vectorstore, reranker, model, tokenizer):
     
     with st.spinner(label):
         context, sources, stats = retrieve_context(
-            query, vectorstore, reranker, intent, book_filter=book_ctx
+            query, vectorstore, reranker, intent, book_filter=book_ctx,
+            history=st.session_state.history
         )
         response = generate_response(
             query, context, sources, model, tokenizer,

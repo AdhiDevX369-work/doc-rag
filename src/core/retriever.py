@@ -37,8 +37,10 @@ def format_source(meta: dict) -> str:
     return " | ".join(parts)
 
 
-def content_hash(text: str) -> str:
-    normalized = re.sub(r'\s+', ' ', text[:500].lower().strip())
+def content_hash(text: str, meta: dict) -> str:
+    # Include metadata in hash to catch duplicates with same content but different sources
+    key = f"{text[:300]}|{meta.get('book_title','')}|{meta.get('page','')}|{meta.get('chapter_title','')}"
+    normalized = re.sub(r'\s+', ' ', key.lower().strip())
     return hashlib.md5(normalized.encode()).hexdigest()
 
 
@@ -68,12 +70,20 @@ def search_books_parallel(query: str, vectorstore, books: list, k_per_book: int 
 
 
 def deduplicate(results: list) -> list:
-    seen = set()
+    seen_hashes = set()
+    seen_content = set()
     unique = []
+    
     for doc, score in results:
-        h = content_hash(doc.page_content)
-        if h not in seen:
-            seen.add(h)
+        # Hash with metadata
+        h = content_hash(doc.page_content, doc.metadata)
+        
+        # Also check content similarity (first 200 chars)
+        content_key = re.sub(r'\s+', '', doc.page_content[:200].lower())
+        
+        if h not in seen_hashes and content_key not in seen_content:
+            seen_hashes.add(h)
+            seen_content.add(content_key)
             unique.append({
                 "id": len(unique),
                 "text": doc.page_content,
@@ -83,17 +93,34 @@ def deduplicate(results: list) -> list:
     return unique
 
 
+def expand_vague_query(query: str, history: list) -> str:
+    """Expand vague queries using previous context"""
+    vague_patterns = ['that', 'this', 'it', 'those', 'these', 'do that', 'do this', 'kind of thing']
+    query_lower = query.lower()
+    
+    if any(p in query_lower for p in vague_patterns) and history:
+        last = history[-1] if history else {}
+        prev_query = last.get("user", "")
+        # Extract key terms from previous query
+        if prev_query:
+            return f"{query} {prev_query}"
+    return query
+
+
 def retrieve_context(query: str, vectorstore, reranker, intent: QueryIntent,
-                     book_filter: str = "", top_k: int = TOP_K) -> tuple[str, list, dict]:
+                     book_filter: str = "", top_k: int = TOP_K, history: list = None) -> tuple[str, list, dict]:
     results = []
     is_structure = intent == QueryIntent.STRUCTURE
     
+    # Expand vague queries
+    search_query = expand_vague_query(query, history or [])
+    
     if intent in [QueryIntent.CROSS_BOOK, QueryIntent.COMPARISON]:
-        results = search_books_parallel(query, vectorstore, BOOK_LIST, k_per_book=3)
+        results = search_books_parallel(search_query, vectorstore, BOOK_LIST, k_per_book=3)
     
     elif intent in [QueryIntent.SPECIFIC_BOOK, QueryIntent.FOLLOWUP, QueryIntent.STRUCTURE] and book_filter:
         if is_structure:
-            toc_query = f"{query} table of contents chapters sections"
+            toc_query = f"{search_query} table of contents chapters sections"
             toc_filter = {"$and": [
                 {"content_type": "table_of_contents"},
                 {"book_title": book_filter}
@@ -107,7 +134,7 @@ def retrieve_context(query: str, vectorstore, reranker, intent: QueryIntent,
                 pass
         
         regular = vectorstore.similarity_search_with_score(
-            query, k=top_k * 3, filter={"book_title": book_filter}
+            search_query, k=top_k * 3, filter={"book_title": book_filter}
         )
         results.extend(regular)
     

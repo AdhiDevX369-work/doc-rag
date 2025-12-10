@@ -8,6 +8,7 @@ class QueryIntent(Enum):
     COMPARISON = "comparison"
     STRUCTURE = "structure"
     FOLLOWUP = "followup"
+    LIST_BOOKS = "list_books"
     GENERAL = "general"
 
 
@@ -26,9 +27,15 @@ STRUCTURE_PATTERNS = [
 ]
 
 CROSS_BOOK_PATTERNS = [
-    r'all.*book', r'across.*book', r'each book',
+    r'across.*book', r'each book',
     r'every book', r'both book', r'different book',
     r'from all', r'in all',
+]
+
+LIST_BOOKS_PATTERNS = [
+    r'list.*book', r'all.*book', r'what book', r'which book.*have',
+    r'show.*book', r'available book', r'books you have',
+    r'how many book', r'more book', r'other book',
 ]
 
 COMPARISON_PATTERNS = [
@@ -42,6 +49,7 @@ FOLLOWUP_INDICATORS = [
     r'^list\b', r'^show\b', r'^tell me\b',
     r'\bit\b', r'\bits\b', r'\bthis\b', r'\bthat\b',
     r'\bthe book\b', r'\bthis book\b',
+    r'\bor\b', r'\?$', r'^why\b', r'^how\b', r'^is\b',
 ]
 
 
@@ -73,17 +81,35 @@ def has_comparison_intent(query: str) -> bool:
     return any(re.search(p, query.lower()) for p in COMPARISON_PATTERNS)
 
 
-def is_followup(query: str) -> bool:
+def has_list_books_intent(query: str) -> bool:
+    return any(re.search(p, query.lower()) for p in LIST_BOOKS_PATTERNS)
+
+
+def is_followup(query: str, history: list) -> bool:
+    if not history:
+        return False
+    
     query_lower = query.lower().strip()
-    if len(query.split()) <= 8:
+    word_count = len(query.split())
+    
+    # Short queries (<=6 words) with active context are likely followups
+    if word_count <= 6:
+        return True
+    
+    # Check for followup indicators
+    if word_count <= 10:
         if any(re.search(p, query_lower) for p in FOLLOWUP_INDICATORS):
             return True
+    
     return False
 
 
 def detect_query_intent(query: str, history: list) -> tuple[QueryIntent, str]:
     query_lower = query.lower()
     active_book = get_active_book_context(history)
+    
+    if has_list_books_intent(query):
+        return QueryIntent.LIST_BOOKS, ""
     
     explicit_book = extract_book_reference(query)
     if explicit_book:
@@ -97,10 +123,12 @@ def detect_query_intent(query: str, history: list) -> tuple[QueryIntent, str]:
     if has_comparison_intent(query):
         return QueryIntent.COMPARISON, ""
     
-    if active_book and (is_followup(query) or has_structure_intent(query)):
+    # If we have active book context, short/followup queries stay in that context
+    if active_book:
         if has_structure_intent(query):
             return QueryIntent.STRUCTURE, active_book
-        return QueryIntent.FOLLOWUP, active_book
+        if is_followup(query, history):
+            return QueryIntent.FOLLOWUP, active_book
     
     if has_structure_intent(query):
         return QueryIntent.STRUCTURE, ""
