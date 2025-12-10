@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.conda/
+
+# Environment Variables
+.env
+
+# VS Code
+.vscode/
+
+# Project Specific - Generated Data
+db/
+
+# filepath: .gitignore
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.conda/
+
+# Environment Variables
+.env
+
+# VS Code
+.vscode/
+
+# Project Specific - Generated Data
+db/
+data/
+
+
+# OS Generated
+.DS_Store
+Thumbs.db
+
+#cache folder
+cache/*
