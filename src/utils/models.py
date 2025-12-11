@@ -1,3 +1,5 @@
+import logging
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -6,7 +8,10 @@ from flashrank import Ranker
 
 from config import DB_DIR, MODEL_NAME, EMBEDDING_MODEL, CHROMA_COLLECTION
 
+logger = logging.getLogger(__name__)
 _cache = {}
+
+TRUST_REMOTE_CODE = os.getenv("TRUST_REMOTE_CODE", "false").lower() == "true"
 
 
 def get_model():
@@ -17,12 +22,18 @@ def get_model():
             bnb_4bit_quant_type="nf4",
         )
         _cache["tokenizer"] = AutoTokenizer.from_pretrained(MODEL_NAME)
-        _cache["model"] = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME,
-            quantization_config=config,
-            device_map="auto",
-            trust_remote_code=True,
-        )
+        
+        load_kwargs = {
+            "quantization_config": config,
+            "device_map": "auto",
+        }
+        
+        if TRUST_REMOTE_CODE:
+            logger.warning("Loading model with trust_remote_code=True")
+            load_kwargs["trust_remote_code"] = True
+        
+        _cache["model"] = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **load_kwargs)
+        logger.info(f"Model loaded: {MODEL_NAME}")
     return _cache["model"], _cache["tokenizer"]
 
 

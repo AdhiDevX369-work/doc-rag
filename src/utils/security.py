@@ -1,6 +1,9 @@
 import re
+import logging
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 MAX_QUERY_LENGTH = 1000
 MAX_QUERIES_PER_MINUTE = 10
@@ -14,6 +17,30 @@ BLOCKED_PATTERNS = [
     r'import\s+sys', r'from\s+os', r'open\s*\(',
     r'\bsystem\s*\(', r'popen', r'shell',
 ]
+
+PROMPT_INJECTION_PATTERNS = [
+    r'ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)',
+    r'forget\s+(everything|all|your)\s+(you|instructions?|rules?)',
+    r'you\s+are\s+now\s+(a|an|the)',
+    r'new\s+instructions?:',
+    r'override\s+(system|all|these)\s+(prompt|rules?|instructions?)',
+    r'disregard\s+(all|previous|above)\s+(instructions?|prompts?)',
+    r'pretend\s+(you\s+are|to\s+be)',
+    r'act\s+as\s+(if|a|an)',
+    r'roleplay\s+as',
+    r'jailbreak',
+    r'dan\s+mode',
+    r'developer\s+mode',
+    r'ignore\s+safety',
+    r'bypass\s+(filter|safety|rules?)',
+    r'system\s*:\s*you\s+are',
+    r'\[system\]',
+    r'\[assistant\]',
+    r'\[user\]',
+]
+
+_compiled_blocked = [re.compile(p, re.IGNORECASE) for p in BLOCKED_PATTERNS]
+_compiled_injection = [re.compile(p, re.IGNORECASE) for p in PROMPT_INJECTION_PATTERNS]
 
 
 @dataclass
@@ -44,11 +71,17 @@ def sanitize_input(text: str) -> tuple[str, bool]:
     if len(text) > MAX_QUERY_LENGTH:
         text = text[:MAX_QUERY_LENGTH]
     
-    for pattern in BLOCKED_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+    for pattern in _compiled_blocked:
+        if pattern.search(text):
+            logger.warning(f"Blocked pattern detected in query")
             return "", False
     
-    text = re.sub(r'[^\w\s\.,\?!;:\'\"-]', '', text)
+    for pattern in _compiled_injection:
+        if pattern.search(text):
+            logger.warning(f"Prompt injection attempt detected")
+            return "", False
+    
+    text = re.sub(r'[^\w\s\.,\?!;:\'\"\-\(\)\[\]@#\$%\+=/\^]', '', text)
     return text.strip(), bool(text)
 
 
